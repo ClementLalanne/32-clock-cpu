@@ -1,0 +1,71 @@
+LW R0 $sec $in0
+LW R0 $min $in1
+LW R0 $hrs $in2
+LW R0 $wek $in3
+LW R0 $day $in4
+LW R0 $mon $in5
+LW R0 $yea $in6 #
+LW R0 $bis $in7
+LW R0 $cen $in8
+LW R0 $fou $in9 #
+ADDI $60 R0 60
+ADDI $24 R0 24
+ADDI $7 R0 7
+ADDI $12 R0 12
+ADDI $4 R0 4
+ADDI $100 R0 100
+ADDI $400 R0 400 #
+BEQ $clk R0 2
+J 17 #
+LW R0 $clk $mmm
+ADDI $sec $sec 1
+BEQ $sec $60 2
+J 17 #
+LW R0 $sec $zer
+ADDI $min $min 1
+BEQ $min $60 2
+J 17 #
+LW R0 $min $zer
+ADDI $hrs $hrs 1
+BEQ $hrs $24 2
+J 17 #
+LW R0 $hrs $zer
+ADDI $day $day 1
+ADDI $wek $wek 1
+BEQ $wek $7 2
+J 37
+LW R0 $wek $zer #
+ADD $x $mon $mon
+ADD $x $x $x
+BEQ $bis R0 2
+J 46
+BEQ $cen R0 2
+J 49
+BEQ $fou R0 2
+J 46
+J 49 #
+ADDI $x $x 176
+LW $x $lmo $zer
+J 52
+ADDI $x $x 224
+LW $x $lmo $zer 
+BEQ $day $lmo 2 #
+LW R0 $day $zer
+ADDI $mon $mon 1
+BEQ $mon $12 2
+J 17 #
+LW R0 $mon $zer #
+ADDI $yea $yea 1
+ADDI $bis $bis 1
+ADDI $cen $cen 1
+ADDI $fou $fou 1 #
+BEQ $bis $4 2
+J 17
+LW R0 $bis $zer #
+BEQ $cen $100 2
+J 17
+LW R0 $cen $zer #
+BEQ $fou $400 2
+J 17
+LW R0 $fou $zer #
+J 17

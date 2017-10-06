@@ -1,0 +1,238 @@
+
+(* Le mircoprocesseur en minijazz *)
+
+
+(* Quelques fonctions utiles *)
+
+repeat<n>(b) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else 
+    o = repeat<n-1>(b).b
+  end if 
+end where
+
+signextend_16_32(a:[16]) = (o:[32]) where
+  b = a[0];
+  o = repeat<16>(b).a
+end where
+
+(* Multiplexeur pour plusieurs bits *)
+Mux<n>(c, a:[n], b:[n]) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else
+    o_1 = Mux<n-1>(c, a[1..], b[1..]);
+    o = mux(c, a[0], b[0]).o_1
+  end if
+end where
+
+
+(* Alu *)
+
+(* Des petites fonctions arithmétiques *)
+
+fulladder(a,b,c) = (s, r) where
+  s = (a ^ b) ^ c;
+  r = (a & b) + ((a ^ b) & c);
+end where
+
+adder<n>(a:[n], b:[n], c_in) = (o:[n], c_out) where
+  if n = 0 then
+    o = [];
+    c_out = 0
+  else
+    (s_n1, c_n1) = adder<n-1>(a[1..], b[1..], c_in);
+    (s_n, c_out) = fulladder(a[0], b[0], c_n1);
+    o = s_n . s_n1
+  end if
+end where
+
+noter<n>(a:[n]) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else
+    o_2 = noter<n-1>(a[1..]);
+    o_3 =  not a[0];
+    o = o_3 . o_2
+  end if
+end where
+
+inverter<n>(a:[n]) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else
+    o_2 = noter<n>(a);
+    o_3 = repeat<n-1>(0).1;
+    (o,l) = adder<n>(o_2,o_3,0)
+  end if
+end where
+
+ander<n>(a:[n],b:[n]) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else
+    o_2 = ander<n-1>(a[1..],b[1..]);
+    o_3 =  a[0] & b[0];
+    o = o_3 . o_2
+  end if
+end where
+
+orer<n>(a:[n],b:[n]) = (o:[n]) where
+  if n = 0 then
+    o = []
+  else
+    o_2 = orer<n-1>(a[1..],b[1..]);
+    o_3 =  a[0] + b[0];
+    o = o_3 . o_2
+  end if
+end where
+
+eq(a,b) = (o) where
+  o_1 = a ^ b ;
+  o = not o_1
+end where
+
+eqer<n>(a:[n],b:[n]) = (o) where
+  if n = 1 then
+    o = eq(a[0],b[0])
+  else
+    o_1  = eqer<n-1>(a[1..],b[1..]);
+    o_2 = eq(a[0],b[0]);
+    o = o_1 & o_2
+  end if
+end where
+
+(* Alu à proprement dit *)
+
+alu(a:[32],b:[32],op:[3]) = (o:[32],r,e) where
+
+  (o_add, e_add) = adder<32>(a, b, 0);
+  invb = inverter<32>(b);
+  (o_sub, e_sub) = adder<32>(a, invb, 0);
+  o_and = ander<32>(a,b);
+  o_or = orer<32>(a,b);
+  
+  flag_eq = eqer<32>(a,b);
+  flag_sup = not a[0];
+
+  o_arith = Mux<32>(op[1], o_sub, o_add);
+  o_andor = Mux<32>(op[1], o_or, o_and);
+  o = Mux<32>(op[0], o_andor, o_arith);
+
+  r = mux(op[1], flag_sup, flag_eq);
+  e = mux(op[1], e_sub, e_add)
+
+end where
+
+
+(* Les unités de conrôle *)
+
+(* L'unité de contrôle principal, en fait opcode[1] est tjs nul *)
+
+Control(opcode:[6])
+  = (RegDst, Jump, Branch, MemWrite, MemToReg, ALUop:[2], MemWrite, AluSrc,
+     RegWrite, JumpAL) where
+
+  RegDst = not (opcode[0] + opcode[2] + opcode[3] + opcode[4] + opcode[5]);
+  Jump = (not opcode[0]) & opcode[4];
+  Branch = opcode[3] + (opcode[5] & (not opcode[4]));
+  MemToReg = opcode[0] & (not opcode[2]);
+  MemWrite = opcode[0] & opcode[2];
+  AluSrc = opcode[0] + opcode[2];
+  JumpAL = (not opcode[0]) & opcode[4] & opcode[5];
+  RegWrite = RegDst + JumpAL + (opcode[0] ^ opcode[2]);
+  ao0 = Branch;
+  ao1 = AluSrc + (opcode[5] & not opcode[4]);
+  ALUop = ao0.ao1
+
+end where
+
+(* L'unité de contrôle ad hor pour l'ALU *)
+
+ALUctrl(ALUop:[2], funcode:[6]) = (ALUcode:[3]) where
+  voirfuncode = not (ALUop[0] + ALUop[1]);
+  ac0 = voirfuncode & (funcode[3]);
+  ac2 = ALUop[0];
+  tmp1 = (voirfuncode & (funcode[4] + funcode[5]));
+  tmp2 = ALUop[0] & ALUop [1];
+  ac1 = tmp1 + tmp2;
+  ALUcode = ac0.ac1.ac2
+end where
+
+
+(* Pour gérer les registres, qui sont en fait mis dans la ram, l'addresse est
+   toujours aligné par 4 octets *)
+
+registres(r1:[5], r2:[5], w:[5], wb, data:[32]) 
+  = (rdata1:[32], rdata2:[32]) where
+  zeros = repeat<25>(0);
+  r1n = zeros.r1.0.0;
+  r2n = zeros.r2.0.0;
+  wn = zeros.w.0.0;
+  rdata1 = ram<32,32>(r1n,wb,wn,data);
+  rdata2 = ram<32,32>(r2n,0,wn,data)
+end where
+
+
+(* Découpadge du code machine *)
+
+decoupage(inst:[32])=(opcode:[6], reg1:[5], reg2:[5], reg3:[5],
+funcode:[6], imm:[16], jumpaddr:[26]) where
+  opcode = inst[0..5];
+  reg1 = inst[6..10];
+  reg2 = inst[11..15];
+  reg3 = inst[16..20];
+  funcode = inst[26..31];
+  imm = inst[16..31];
+  jumpaddr = inst[6..31]
+end where
+
+
+(* Le prcesseur en entier*)
+
+main() = () where
+  
+  (* pc *)
+  zeros = repeat<32>(0);
+  pc_addr = zeros[..24].1.1.0.0.1.0.0;
+  pc = ram<32,32>(pc_addr, 0, zeros, zeros);
+  quatre = zeros[..28].1.0.0;
+  (next_pc, l1) = adder<32>(pc, quatre, 0);
+  
+  (* contrôle *)
+  inst = rom<32,32>(pc);
+  (opcode, reg1, reg2, reg3, funcode, imm, jumpaddr) = decoupage(inst);
+  (RegDst, Jump, Branch, MemRead, MemToReg, ALUop, MemWrite,
+   AluSrc, RegWrite, JumpAL) = Control(opcode);
+  
+  (* l'alu *)
+  R0 = repeat<5>(0);
+  (reg_rdata1, reg_rdata2) = registres(reg1, reg2, R0, 0, zeros);
+  imm_val = signextend_16_32(imm);
+  alu_input2 = Mux<32>(AluSrc, imm_val, reg_rdata2);
+  ALUcode = ALUctrl(ALUop, opcode);
+  (alu_res, flag, carry) = alu(reg_rdata1, alu_input2, ALUcode);
+  
+  (* écrire dans la mémoire/les reigstres *)
+  mem_rdata = ram<32,32>(alu_res, MemWrite, alu_res, reg_rdata2);
+  wreg_data_p = Mux<32>(MemToReg, mem_rdata, alu_res);
+  wreg_data = Mux<32>(JumpAL, next_pc, wreg_data_p);
+  wreg_p = Mux<5>(RegDst, reg3, reg2);
+  R31 = repeat<5>(1);
+  wreg = Mux<5>(JumpAL, R31, wreg_p);
+  (l2, l3) = registres(R0, R0, wreg, RegWrite, wreg_data);
+
+  (* branch, j'ai mis next_pc au lieu de pc avant *)
+  (branch_addr, l4) = adder<32>(pc, imm_val[2..].0.0, 0);
+  do_branch = Branch & flag;
+  new_pc_p = Mux<32>(do_branch, branch_addr, next_pc);
+
+  (* jump *)
+  jmp_addr = next_pc[..3].jumpaddr.0.0;
+  new_pc = Mux<32>(Jump, jmp_addr, new_pc_p);
+
+  (* modifie pc *)
+  l5 = ram<32,32>(zeros, 1, pc_addr, new_pc)
+
+end where
